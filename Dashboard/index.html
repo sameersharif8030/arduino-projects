@@ -1,0 +1,1530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StratoDash | Smart Weather Balloon Telemetry</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        :root {
+            --primary: #4f46e5;
+            --primary-light: #818cf8;
+            --cyan: #06b6d4;
+            --emerald: #10b981;
+            --rose: #f43f5e;
+            --amber: #f59e0b;
+            --slate-900: #0f172a;
+            --slate-700: #334155;
+            --slate-500: #64748b;
+            --slate-300: #cbd5e1;
+            --glass-bg: rgba(255, 255, 255, 0.45);
+            --glass-border: rgba(255, 255, 255, 0.6);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #a5f3fc 0%, #c7d2fe 50%, #ddd6fe 100%);
+            min-height: 100vh;
+            color: var(--slate-900);
+            overflow-x: hidden;
+        }
+        
+        /* Background decoration */
+        .bg-decor {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: -1;
+        }
+        .bg-decor::before {
+            content: '';
+            position: absolute;
+            top: -20%; left: -20%;
+            width: 60%; height: 60%;
+            background: radial-gradient(circle, rgba(147, 197, 253, 0.4) 0%, transparent 70%);
+            animation: pulse 8s ease-in-out infinite;
+        }
+        .bg-decor::after {
+            content: '';
+            position: absolute;
+            bottom: -20%; right: -20%;
+            width: 70%; height: 70%;
+            background: radial-gradient(circle, rgba(196, 181, 253, 0.3) 0%, transparent 70%);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.6; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+        
+        /* Header */
+        header {
+            padding: 1.5rem 10rem 1.5rem 2rem;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        @media (max-width: 700px) {
+            header { padding-right: 9rem; }
+            .mode-toggle { top: 1rem; right: 0.75rem; }
+            .mode-btn { padding: 0.5rem 0.75rem; font-size: 0.6rem; min-width: 85px; }
+        }
+        
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .logo-icon {
+            width: 56px; height: 56px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--cyan) 100%);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 20px rgba(79, 70, 229, 0.4);
+        }
+        
+        .logo-icon svg {
+            width: 32px; height: 32px;
+            color: white;
+            animation: spin 10s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .logo-text h1 {
+            font-size: 1.5rem;
+            font-weight: 900;
+            letter-spacing: -0.02em;
+            color: var(--slate-900);
+        }
+        
+        .logo-text p {
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--primary);
+            opacity: 0.7;
+        }
+        
+        .status-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #d1d5db;
+        }
+        .status-dot.active { background: var(--emerald); animation: blink 1.5s infinite; }
+        .status-dot.warning { background: var(--amber); }
+        .status-dot.danger { background: var(--rose); }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        
+        .clock {
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            font-weight: 700;
+            padding: 0.5rem 1rem;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 999px;
+        }
+        
+        /* Main Grid */
+        main {
+            padding: 0 2rem 2rem;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+        }
+        
+        @media (max-width: 1200px) {
+            main { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 900px) {
+            main { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 600px) {
+            main { grid-template-columns: 1fr; }
+            header, main { padding: 1rem; }
+        }
+        
+        /* Glass Card */
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 1.5rem;
+            padding: 1.25rem;
+            box-shadow: var(--shadow);
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover { transform: translateY(-2px); }
+        
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .card-header svg {
+            width: 20px; height: 20px;
+            color: var(--primary);
+        }
+        
+        .card-header h3 {
+            font-size: 0.7rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--slate-700);
+        }
+        
+        /* Span classes */
+        .span-2 { grid-column: span 2; }
+        .span-3 { grid-column: span 3; }
+        .span-4 { grid-column: span 4; }
+        
+        @media (max-width: 900px) {
+            .span-2, .span-3, .span-4 { grid-column: span 2; }
+        }
+        @media (max-width: 600px) {
+            .span-2, .span-3, .span-4 { grid-column: span 1; }
+        }
+        
+        /* Telemetry Grid */
+        .telemetry-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+        }
+        
+        @media (max-width: 900px) {
+            .telemetry-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 500px) {
+            .telemetry-grid { grid-template-columns: 1fr; }
+        }
+        
+        .telemetry-item {
+            text-align: center;
+        }
+        
+        .telemetry-label {
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--slate-500);
+            margin-bottom: 0.25rem;
+        }
+        
+        .telemetry-value {
+            font-size: 1.75rem;
+            font-weight: 900;
+            line-height: 1;
+        }
+        
+        .telemetry-unit {
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: var(--slate-500);
+            margin-left: 2px;
+        }
+        
+        .text-blue { color: #2563eb; }
+        .text-rose { color: #e11d48; }
+        .text-cyan { color: #0891b2; }
+        .text-emerald { color: #059669; }
+        .text-orange { color: #ea580c; }
+        .text-purple { color: #7c3aed; }
+        .text-indigo { color: #4f46e5; }
+        .text-teal { color: #0d9488; }
+        
+        /* Mission Status */
+        .mission-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        
+        .mission-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .mission-row span:first-child {
+            font-size: 0.75rem;
+            color: var(--slate-500);
+        }
+        
+        .mission-row span:last-child {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--slate-900);
+        }
+        
+        .phase-badge {
+            padding: 0.4rem 0.8rem;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--cyan) 100%);
+            color: white;
+            border-radius: 0.5rem;
+            font-size: 0.7rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        /* Safety Indicators */
+        .safety-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            border-radius: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .safety-item.safe { background: rgba(16, 185, 129, 0.15); }
+        .safety-item.warning { background: rgba(245, 158, 11, 0.15); }
+        .safety-item.danger { background: rgba(244, 63, 94, 0.15); }
+        
+        .safety-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        
+        .safety-label svg {
+            width: 16px; height: 16px;
+        }
+        
+        .safety-item.safe .safety-label { color: var(--emerald); }
+        .safety-item.warning .safety-label { color: var(--amber); }
+        .safety-item.danger .safety-label { color: var(--rose); }
+        
+        .safety-value {
+            font-size: 0.7rem;
+            font-weight: 800;
+        }
+        
+        .safety-item.safe .safety-value { color: var(--emerald); }
+        .safety-item.warning .safety-value { color: var(--amber); }
+        .safety-item.danger .safety-value { color: var(--rose); }
+        
+        /* Map */
+        .map-container {
+            height: 350px;
+            border-radius: 1rem;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .coords-box {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(12px);
+            padding: 0.75rem 1rem;
+            border-radius: 1rem;
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow);
+        }
+        
+        .coords-box .label {
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--slate-500);
+        }
+        
+        .coords-box .value {
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        
+        /* Motion/Stability */
+        .motion-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .orientation-viz {
+            width: 120px;
+            height: 120px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .orientation-ring {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 3px solid var(--slate-300);
+            border-radius: 50%;
+            opacity: 0.3;
+        }
+        
+        .orientation-ball {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--cyan) 100%);
+            border-radius: 50%;
+            box-shadow: 0 4px 20px rgba(79, 70, 229, 0.4);
+            transition: transform 0.5s ease;
+        }
+        
+        .motion-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.5rem;
+            width: 100%;
+        }
+        
+        .motion-stat {
+            text-align: center;
+            padding: 0.5rem;
+            background: rgba(79, 70, 229, 0.05);
+            border-radius: 0.75rem;
+        }
+        
+        .motion-stat .label {
+            font-size: 0.55rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--slate-500);
+        }
+        
+        .motion-stat .value {
+            font-size: 1.1rem;
+            font-weight: 900;
+            color: var(--primary);
+        }
+        
+        /* Charts */
+        .chart-container {
+            height: 220px;
+            position: relative;
+        }
+        
+        .chart-legend {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-top: 0.75rem;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 3px;
+            border-radius: 2px;
+        }
+        
+        .legend-label {
+            font-size: 0.6rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--slate-500);
+        }
+        
+        /* Mission Control Buttons */
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.75rem;
+        }
+        
+        @media (max-width: 500px) {
+            .control-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        
+        .control-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            padding: 1rem;
+            border: none;
+            border-radius: 1rem;
+            cursor: pointer;
+            font-size: 0.6rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: all 0.2s ease;
+        }
+        
+        .control-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+        
+        .control-btn:active { transform: scale(0.95); }
+        
+        .btn-start { background: linear-gradient(135deg, #10b981, #06b6d4); color: white; }
+        .btn-pause { background: linear-gradient(135deg, #f43f5e, #fb7185); color: white; }
+        .btn-reset { background: #e2e8f0; color: var(--slate-700); }
+        .btn-export { background: linear-gradient(135deg, #4f46e5, #818cf8); color: white; }
+        
+        /* Floating Mode Toggle - Top Right Corner */
+        .mode-toggle {
+            position: fixed;
+            top: 1.25rem;
+            right: 1.25rem;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            padding: 0.35rem;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 1rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+        }
+        
+        .mode-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+            padding: 0.65rem 1.25rem;
+            border: none;
+            border-radius: 0.75rem;
+            font-size: 0.65rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(255,255,255,0.3);
+            color: var(--slate-500);
+            min-width: 110px;
+        }
+        
+        .mode-btn svg {
+            width: 14px;
+            height: 14px;
+        }
+        
+        .mode-btn.active-demo {
+            background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
+            color: white;
+            box-shadow: 0 4px 16px rgba(79, 70, 229, 0.45);
+        }
+        
+        .mode-btn.active-live {
+            background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+            color: white;
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.45);
+        }
+        
+        .mode-btn:not(.active-demo):not(.active-live):hover {
+            background: rgba(255,255,255,0.6);
+            color: var(--slate-700);
+        }
+        
+        .mode-label {
+            font-size: 0.55rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--slate-500);
+            text-align: center;
+            padding-bottom: 0.25rem;
+        }
+        
+        /* Educational Panel */
+        .edu-content p {
+            font-size: 0.85rem;
+            line-height: 1.7;
+            color: var(--slate-700);
+            margin-bottom: 1rem;
+        }
+        
+        .edu-lists {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.5rem;
+        }
+        
+        .edu-list {
+            list-style: disc;
+            padding-left: 1.25rem;
+        }
+        
+        .edu-list li {
+            font-size: 0.75rem;
+            color: var(--slate-500);
+            margin-bottom: 0.25rem;
+        }
+        
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        footer p {
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--slate-500);
+        }
+        
+        /* Leaflet custom styles */
+        .leaflet-control-zoom { display: none; }
+    </style>
+</head>
+<body>
+    <div class="bg-decor"></div>
+    
+    <!-- Header -->
+    <header>
+        <div class="logo-section">
+            <div class="logo-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
+                    <path d="M2 12h20"/>
+                    <path d="M12 2c2.5 2.5 4 6 4 10s-1.5 7.5-4 10"/>
+                </svg>
+            </div>
+            <div class="logo-text">
+                <h1>STRATODASH</h1>
+                <p>Smart Weather Balloon Telemetry</p>
+            </div>
+        </div>
+        
+        <div class="status-row">
+            <div class="status-badge">
+                <div class="status-dot active" id="systemStatus"></div>
+                <span>System Active</span>
+            </div>
+            <div class="status-badge">
+                <div class="status-dot active" id="gpsStatus"></div>
+                <span>GPS Lock</span>
+            </div>
+            <div class="status-badge">
+                <div class="status-dot active" id="rfStatus"></div>
+                <span>RF Link</span>
+            </div>
+            <div class="clock" id="clock">00:00:00</div>
+        </div>
+    </header>
+    
+    <!-- Floating Mode Toggle - Top Right Corner -->
+    <div class="mode-toggle">
+        <div class="mode-label">Data Source</div>
+        <button class="mode-btn active-demo" id="demoBtn" onclick="setMode('demo')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="m8 21 4-4 4 4"/></svg>
+            Demo
+        </button>
+        <button class="mode-btn" id="liveBtn" onclick="setMode('live')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+            Live ESP32
+        </button>
+    </div>
+    
+    <!-- Main Dashboard -->
+    <main>
+        <!-- Primary Telemetry Card -->
+        <div class="card span-4">
+            <div class="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                </svg>
+                <h3>Atmospheric Live Telemetry</h3>
+            </div>
+            <div class="telemetry-grid">
+                <div class="telemetry-item">
+                    <div class="telemetry-label">Altitude</div>
+                    <div class="telemetry-value text-blue" id="altitude">125</div>
+                    <span class="telemetry-unit">m</span>
+                </div>
+                <div class="telemetry-item">
+                    <div class="telemetry-label">Temperature</div>
+                    <div class="telemetry-value text-rose" id="temperature">28</div>
+                    <span class="telemetry-unit">°C</span>
+                </div>
+                <div class="telemetry-item">
+                    <div class="telemetry-label">Pressure</div>
+                    <div class="telemetry-value text-cyan" id="pressure">1008</div>
+                    <span class="telemetry-unit">hPa</span>
+                </div>
+                <div class="telemetry-item">
+                    <div class="telemetry-label">Air Quality</div>
+                    <div class="telemetry-value text-emerald" id="aqi">65</div>
+                    <span class="telemetry-unit">AQI</span>
+                </div>
+                <div class="telemetry-item">
+                    <div class="telemetry-label">CO Level</div>
+                    <div class="telemetry-value text-orange" id="co">12</div>
+                    <span class="telemetry-unit">ppm</span>
+                </div>
+                <div class="telemetry-item">
+                    <div class="telemetry-label">Smoke</div>
+                    <div class="telemetry-value text-slate-700" id="smoke">18</div>
+                    <span class="telemetry-unit">idx</span>
+                </div>
+                <div class="telemetry-item">
+                    <div class="telemetry-label">Wind Speed</div>
+                    <div class="telemetry-value text-teal" id="windSpeed">18</div>
+                    <span class="telemetry-unit">km/h</span>
+                </div>
+                <div class="telemetry-item">
+                    <div class="telemetry-label">GPS Speed</div>
+                    <div class="telemetry-value text-indigo" id="speed">15</div>
+                    <span class="telemetry-unit">km/h</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mission Status -->
+        <div class="card span-1">
+            <div class="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/>
+                    <line x1="12" y1="22" x2="12" y2="15.5"/>
+                    <polyline points="22 8.5 12 15.5 2 8.5"/>
+                </svg>
+                <h3>Mission Status</h3>
+            </div>
+            <div class="mission-info">
+                <div class="mission-row">
+                    <span>Flight Phase</span>
+                    <span class="phase-badge" id="flightPhase">Ascending</span>
+                </div>
+                <div class="mission-row">
+                    <span>Max Altitude</span>
+                    <span id="maxAltitude">125 m</span>
+                </div>
+                <div class="mission-row">
+                    <span>Ascent Rate</span>
+                    <span id="ascentRate">2.5 m/s</span>
+                </div>
+                <div class="mission-row">
+                    <span>Flight Time</span>
+                    <span id="flightTime">00:00:00</span>
+                </div>
+                <div class="mission-row">
+                    <span>Distance</span>
+                    <span id="distance">0.00 km</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Environmental Safety -->
+        <div class="card span-1">
+            <div class="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                <h3>Environmental Safety</h3>
+            </div>
+            <div id="safetyAQI" class="safety-item safe">
+                <div class="safety-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                    Air Quality
+                </div>
+                <span class="safety-value">GOOD</span>
+            </div>
+            <div id="safetyCO" class="safety-item safe">
+                <div class="safety-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    Carbon Monoxide
+                </div>
+                <span class="safety-value">SAFE</span>
+            </div>
+            <div id="safetySmoke" class="safety-item safe">
+                <div class="safety-label">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 19a4 4 0 0 1-4-4 7 7 0 0 1 14 0 4 4 0 0 1-4 4Z"/><path d="M12 12v3"/></svg>
+                    Smoke Detection
+                </div>
+                <span class="safety-value">CLEAR</span>
+            </div>
+        </div>
+        
+        <!-- GPS Tracking Map -->
+        <div class="card span-3">
+            <div class="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                    <circle cx="12" cy="10" r="3"/>
+                </svg>
+                <h3>Live GPS Tracking</h3>
+            </div>
+            <div class="map-container">
+                <div class="coords-box">
+                    <div class="label">Coordinates</div>
+                    <div class="value" id="coords">13.0827°N, 80.2707°E</div>
+                </div>
+                <div id="map"></div>
+            </div>
+        </div>
+        
+        <!-- Motion & Stability -->
+        <div class="card span-1">
+            <div class="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 8v8"/>
+                    <path d="M8 12h8"/>
+                </svg>
+                <h3>Motion & Stability</h3>
+            </div>
+            <div class="motion-container">
+                <div class="orientation-viz">
+                    <div class="orientation-ring"></div>
+                    <div class="orientation-ball" id="orientBall"></div>
+                </div>
+                <div class="motion-stats">
+                    <div class="motion-stat">
+                        <div class="label">Pitch</div>
+                        <div class="value" id="pitch">5°</div>
+                    </div>
+                    <div class="motion-stat">
+                        <div class="label">Roll</div>
+                        <div class="value" id="roll">2°</div>
+                    </div>
+                    <div class="motion-stat">
+                        <div class="label">Vibration</div>
+                        <div class="value" id="vibration">10</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Altitude Chart -->
+        <div class="card span-2">
+            <div class="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="20" x2="12" y2="10"/>
+                    <polyline points="19 12 12 5 5 12"/>
+                </svg>
+                <h3>Altitude Profile</h3>
+            </div>
+            <div class="chart-container">
+                <canvas id="altitudeChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Temperature & Pressure Chart -->
+        <div class="card span-2">
+            <div class="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>
+                </svg>
+                <h3>Atmospheric Trends</h3>
+            </div>
+            <div class="chart-container">
+                <canvas id="atmosphereChart"></canvas>
+            </div>
+            <div class="chart-legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #e11d48;"></div>
+                    <span class="legend-label">Temperature</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #0891b2;"></div>
+                    <span class="legend-label">Pressure</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mission Control -->
+        <div class="card span-2">
+            <div class="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2a10 10 0 1 0 10 10H12V2Z"/>
+                    <path d="M12 12 2.1 9.9"/>
+                    <path d="m22 2-4.5 18.5"/>
+                </svg>
+                <h3>Mission Control</h3>
+            </div>
+            <div class="control-grid">
+                <button class="control-btn btn-start" onclick="startMission()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    Start
+                </button>
+                <button class="control-btn btn-pause" onclick="pauseMission()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                    Pause
+                </button>
+                <button class="control-btn btn-reset" onclick="resetData()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    Reset
+                </button>
+                <button class="control-btn btn-export" onclick="exportData()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Export
+                </button>
+            </div>
+        </div>
+        
+        <!-- Educational Panel -->
+        <div class="card span-2">
+            <div class="card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                </svg>
+                <h3>Project Intelligence</h3>
+            </div>
+            <div class="edu-content">
+                <p><strong style="color: var(--primary);">Smart Weather Balloon Training & Atmospheric Monitoring Kit</strong> — A comprehensive IoT-based telemetry system designed for high-altitude atmospheric research, weather balloon training, and environmental monitoring education.</p>
+                <div class="edu-lists">
+                    <ul class="edu-list">
+                        <li>Atmospheric Data Collection</li>
+                        <li>Weather Balloon Training</li>
+                        <li>Environmental Monitoring</li>
+                    </ul>
+                    <ul class="edu-list">
+                        <li>GPS Live Tracking</li>
+                        <li>IoT Telemetry System</li>
+                        <li>Research & Education</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <footer>
+        <p>© 2024 Aerospace Engineering Department • IoT & Atmospheric Research Laboratory</p>
+    </footer>
+
+    <script>
+        // ============================================
+        // BALLOON DATA OBJECT (ESP32 Data Structure)
+        // ============================================
+        let balloonData = {
+            altitude: 125,
+            temperature: 28,
+            pressure: 1008,
+            aqi: 65,
+            co: 12,
+            smoke: 18,
+            latitude: 13.0827,
+            longitude: 80.2707,
+            speed: 15,
+            windSpeed: 18,
+            pitch: 5,
+            roll: 2,
+            vibration: 10
+        };
+
+        // ============================================
+        // STATE VARIABLES
+        // ============================================
+        let isDemoMode = true;
+        let isMissionActive = false;
+        let missionStartTime = null;
+        let flightHistory = [];
+        let pathCoordinates = [];
+        let maxAltitudeReached = 0;
+        let totalDistance = 0;
+        let lastLat = 13.0827;
+        let lastLng = 80.2707;
+        
+        // Charts
+        let altitudeChart, atmosphereChart;
+        let map, marker, pathLine;
+        
+        // ESP32 API Endpoint (configurable)
+        const ESP32_API_URL = 'http://192.168.1.100'; // Change to your ESP32 IP
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+        document.addEventListener('DOMContentLoaded', () => {
+            initClock();
+            initMap();
+            initCharts();
+            updateDisplay(balloonData);
+            
+            // Start demo mode by default
+            setMode('demo');
+        });
+
+        // ============================================
+        // CLOCK
+        // ============================================
+        function initClock() {
+            updateClock();
+            setInterval(updateClock, 1000);
+        }
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').textContent = now.toLocaleTimeString();
+        }
+
+        // ============================================
+        // MODE SWITCHING (Demo / Live ESP32)
+        // ============================================
+        function setMode(mode) {
+            isDemoMode = (mode === 'demo');
+            
+            const demoBtn = document.getElementById('demoBtn');
+            const liveBtn = document.getElementById('liveBtn');
+            
+            if (isDemoMode) {
+                demoBtn.classList.add('active-demo');
+                demoBtn.classList.remove('active-live');
+                liveBtn.classList.remove('active-live');
+                liveBtn.classList.remove('active-demo');
+                document.getElementById('rfStatus').className = 'status-dot active';
+            } else {
+                liveBtn.classList.add('active-live');
+                liveBtn.classList.remove('active-demo');
+                demoBtn.classList.remove('active-demo');
+                demoBtn.classList.remove('active-live');
+            }
+            
+            if (isDemoMode) {
+                stopLiveMode();
+                startDemoMode();
+            } else {
+                stopDemoMode();
+                startLiveMode();
+            }
+        }
+
+        // ============================================
+        // DEMO MODE (Simulation)
+        // ============================================
+        let demoInterval = null;
+
+        function startDemoMode() {
+            // Reset data
+            resetData();
+            isMissionActive = true;
+            missionStartTime = Date.now();
+            
+            demoInterval = setInterval(() => {
+                if (!isMissionActive) return;
+                
+                // Simulate realistic atmospheric physics
+                const altChange = (Math.random() - 0.3) * 8;
+                const newAlt = Math.max(100, balloonData.altitude + altChange);
+                
+                balloonData = {
+                    ...balloonData,
+                    altitude: parseFloat(newAlt.toFixed(1)),
+                    temperature: parseFloat((28 - (newAlt / 1000) * 6.5 + (Math.random() - 0.5) * 2).toFixed(1)),
+                    pressure: parseFloat((1013 * Math.exp(-newAlt / 8500)).toFixed(1)),
+                    aqi: Math.floor(55 + Math.random() * 20),
+                    co: Math.floor(8 + Math.random() * 8),
+                    smoke: Math.floor(12 + Math.random() * 10),
+                    latitude: balloonData.latitude + (Math.random() - 0.5) * 0.002,
+                    longitude: balloonData.longitude + (Math.random() - 0.5) * 0.002,
+                    speed: Math.floor(10 + Math.random() * 15),
+                    windSpeed: Math.floor(12 + Math.random() * 18),
+                    pitch: Math.floor((Math.random() - 0.5) * 15),
+                    roll: Math.floor((Math.random() - 0.5) * 12),
+                    vibration: Math.floor(Math.random() * 25)
+                };
+                
+                updateDisplay(balloonData);
+            }, 1500);
+        }
+
+        function stopDemoMode() {
+            if (demoInterval) {
+                clearInterval(demoInterval);
+                demoInterval = null;
+            }
+        }
+
+        // ============================================
+        // LIVE MODE (ESP32 API Fetch)
+        // ============================================
+        let liveInterval = null;
+
+        function startLiveMode() {
+            liveInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${ESP32_API_URL}/api/telemetry`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        balloonData = { ...balloonData, ...data };
+                        updateDisplay(balloonData);
+                        
+                        // Update status indicators
+                        document.getElementById('systemStatus').className = 'status-dot active';
+                        document.getElementById('gpsStatus').className = 'status-dot active';
+                        document.getElementById('rfStatus').className = 'status-dot active';
+                    }
+                } catch (error) {
+                    console.log('ESP32 not reachable, switching to demo...');
+                    setMode('demo');
+                    document.getElementById('rfStatus').className = 'status-dot warning';
+                }
+            }, 2000);
+        }
+
+        function stopLiveMode() {
+            if (liveInterval) {
+                clearInterval(liveInterval);
+                liveInterval = null;
+            }
+        }
+
+        // ============================================
+        // UPDATE DISPLAY
+        // ============================================
+        function updateDisplay(data) {
+            // Telemetry values
+            document.getElementById('altitude').textContent = data.altitude.toFixed(0);
+            document.getElementById('temperature').textContent = data.temperature.toFixed(1);
+            document.getElementById('pressure').textContent = data.pressure.toFixed(0);
+            document.getElementById('aqi').textContent = Math.floor(data.aqi);
+            document.getElementById('co').textContent = Math.floor(data.co);
+            document.getElementById('smoke').textContent = Math.floor(data.smoke);
+            document.getElementById('windSpeed').textContent = Math.floor(data.windSpeed);
+            document.getElementById('speed').textContent = Math.floor(data.speed);
+            
+            // Mission status
+            maxAltitudeReached = Math.max(maxAltitudeReached, data.altitude);
+            document.getElementById('maxAltitude').textContent = `${maxAltitudeReached.toFixed(0)} m`;
+            document.getElementById('ascentRate').textContent = `${((data.altitude - (flightHistory.length > 0 ? flightHistory[flightHistory.length - 1].alt : data.altitude)) * 2).toFixed(1)} m/s`;
+            
+            // Flight time
+            if (missionStartTime) {
+                const elapsed = Math.floor((Date.now() - missionStartTime) / 1000);
+                const hrs = Math.floor(elapsed / 3600).toString().padStart(2, '0');
+                const mins = Math.floor((elapsed % 3600) / 60).toString().padStart(2, '0');
+                const secs = (elapsed % 60).toString().padStart(2, '0');
+                document.getElementById('flightTime').textContent = `${hrs}:${mins}:${secs}`;
+            }
+            
+            // Distance calculation
+            if (lastLat && lastLng) {
+                const dist = haversineDistance(lastLat, lastLng, data.latitude, data.longitude);
+                totalDistance += dist;
+            }
+            lastLat = data.latitude;
+            lastLng = data.longitude;
+            document.getElementById('distance').textContent = `${totalDistance.toFixed(2)} km`;
+            
+            // Flight phase
+            const phase = data.altitude < 200 ? 'Ascending' : data.altitude > 100 ? 'Cruising' : 'Grounded';
+            document.getElementById('flightPhase').textContent = phase;
+            
+            // Coordinates
+            const latDir = data.latitude >= 0 ? 'N' : 'S';
+            const lngDir = data.longitude >= 0 ? 'E' : 'W';
+            document.getElementById('coords').textContent = 
+                `${Math.abs(data.latitude).toFixed(4)}°${latDir}, ${Math.abs(data.longitude).toFixed(4)}°${lngDir}`;
+            
+            // Safety indicators
+            updateSafetyIndicators(data);
+            
+            // Motion/Orientation
+            document.getElementById('pitch').textContent = `${data.pitch}°`;
+            document.getElementById('roll').textContent = `${data.roll}°`;
+            document.getElementById('vibration').textContent = data.vibration;
+            
+            // Update orientation ball
+            const orientBall = document.getElementById('orientBall');
+            orientBall.style.transform = `translate(${data.roll * 3}px, ${data.pitch * 3}px)`;
+            
+            // Update map
+            updateMap(data.latitude, data.longitude);
+            
+            // Update charts
+            updateCharts(data);
+        }
+
+        // ============================================
+        // SAFETY INDICATORS
+        // ============================================
+        function updateSafetyIndicators(data) {
+            // AQI
+            const aqiEl = document.getElementById('safetyAQI');
+            if (data.aqi < 50) {
+                aqiEl.className = 'safety-item safe';
+                aqiEl.querySelector('.safety-value').textContent = 'EXCELLENT';
+            } else if (data.aqi < 100) {
+                aqiEl.className = 'safety-item warning';
+                aqiEl.querySelector('.safety-value').textContent = 'MODERATE';
+            } else {
+                aqiEl.className = 'safety-item danger';
+                aqiEl.querySelector('.safety-value').textContent = 'POOR';
+            }
+            
+            // CO
+            const coEl = document.getElementById('safetyCO');
+            if (data.co < 10) {
+                coEl.className = 'safety-item safe';
+                coEl.querySelector('.safety-value').textContent = 'SAFE';
+            } else if (data.co < 20) {
+                coEl.className = 'safety-item warning';
+                coEl.querySelector('.safety-value').textContent = 'CAUTION';
+            } else {
+                coEl.className = 'safety-item danger';
+                coEl.querySelector('.safety-value').textContent = 'DANGER';
+            }
+            
+            // Smoke
+            const smokeEl = document.getElementById('safetySmoke');
+            if (data.smoke < 30) {
+                smokeEl.className = 'safety-item safe';
+                smokeEl.querySelector('.safety-value').textContent = 'CLEAR';
+            } else if (data.smoke < 60) {
+                smokeEl.className = 'safety-item warning';
+                smokeEl.querySelector('.safety-value').textContent = 'DETECTED';
+            } else {
+                smokeEl.className = 'safety-item danger';
+                smokeEl.querySelector('.safety-value').textContent = 'ALERT';
+            }
+        }
+
+        // ============================================
+        // MAP INITIALIZATION & UPDATE
+        // ============================================
+        function initMap() {
+            map = L.map('map', {
+                center: [balloonData.latitude, balloonData.longitude],
+                zoom: 15,
+                zoomControl: false
+            });
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap'
+            }).addTo(map);
+            
+            // Custom marker icon
+            const balloonIcon = L.divIcon({
+                className: 'custom-marker',
+                html: `<div style="
+                    width: 24px; height: 24px;
+                    background: linear-gradient(135deg, #4f46e5, #06b6d4);
+                    border: 3px solid white;
+                    border-radius: 50%;
+                    box-shadow: 0 2px 10px rgba(79,70,229,0.5);
+                "></div>`,
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            });
+            
+            marker = L.marker([balloonData.latitude, balloonData.longitude], { icon: balloonIcon }).addTo(map);
+            pathLine = L.polyline([], { color: '#4f46e5', weight: 4, opacity: 0.7 }).addTo(map);
+        }
+
+        function updateMap(lat, lng) {
+            if (marker) {
+                marker.setLatLng([lat, lng]);
+                map.setView([lat, lng]);
+                
+                pathCoordinates.push([lat, lng]);
+                if (pathCoordinates.length > 100) pathCoordinates.shift();
+                pathLine.setLatLngs(pathCoordinates);
+            }
+        }
+
+        // ============================================
+        // CHARTS
+        // ============================================
+        function initCharts() {
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 300 },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(255,255,255,0.9)',
+                        titleColor: '#334155',
+                        bodyColor: '#64748b',
+                        borderColor: '#e2e8f0',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        padding: 10
+                    }
+                },
+                scales: {
+                    x: {
+                        display: false,
+                        grid: { display: false }
+                    },
+                    y: {
+                        display: true,
+                        grid: {
+                            color: 'rgba(203, 213, 225, 0.3)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            font: { size: 10, weight: '600' },
+                            color: '#94a3b8'
+                        }
+                    }
+                }
+            };
+
+            // Altitude Chart
+            const altCtx = document.getElementById('altitudeChart').getContext('2d');
+            altitudeChart = new Chart(altCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [],
+                        borderColor: '#4f46e5',
+                        backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        borderWidth: 3
+                    }]
+                },
+                options: {
+                    ...chartOptions,
+                    scales: {
+                        ...chartOptions.scales,
+                        y: {
+                            ...chartOptions.scales.y,
+                            title: { display: true, text: 'meters', font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+
+            // Atmosphere Chart
+            const atmCtx = document.getElementById('atmosphereChart').getContext('2d');
+            atmosphereChart = new Chart(atmCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Temperature',
+                            data: [],
+                            borderColor: '#e11d48',
+                            backgroundColor: 'transparent',
+                            tension: 0.4,
+                            pointRadius: 0,
+                            borderWidth: 2
+                        },
+                        {
+                            label: 'Pressure',
+                            data: [],
+                            borderColor: '#0891b2',
+                            backgroundColor: 'transparent',
+                            tension: 0.4,
+                            pointRadius: 0,
+                            borderWidth: 2
+                        }
+                    ]
+                },
+                options: chartOptions
+            });
+        }
+
+        function updateCharts(data) {
+            const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            
+            // Store history
+            flightHistory.push({
+                time: timeLabel,
+                alt: data.altitude,
+                temp: data.temperature,
+                press: data.pressure,
+                aqi: data.aqi
+            });
+            
+            if (flightHistory.length > 30) flightHistory.shift();
+            
+            // Update Altitude Chart
+            altitudeChart.data.labels = flightHistory.map(h => h.time);
+            altitudeChart.data.datasets[0].data = flightHistory.map(h => h.alt);
+            altitudeChart.update('none');
+            
+            // Update Atmosphere Chart
+            atmosphereChart.data.labels = flightHistory.map(h => h.time);
+            atmosphereChart.data.datasets[0].data = flightHistory.map(h => h.temp);
+            atmosphereChart.data.datasets[1].data = flightHistory.map(h => h.pressure);
+            atmosphereChart.update('none');
+        }
+
+        // ============================================
+        // MISSION CONTROL FUNCTIONS
+        // ============================================
+        function startMission() {
+            if (!isMissionActive) {
+                isMissionActive = true;
+                if (!missionStartTime) missionStartTime = Date.now();
+                
+                if (isDemoMode) {
+                    startDemoMode();
+                }
+            }
+        }
+
+        function pauseMission() {
+            isMissionActive = false;
+            if (isDemoMode) {
+                stopDemoMode();
+            }
+        }
+
+        function resetData() {
+            // Stop all
+            isMissionActive = false;
+            missionStartTime = null;
+            flightHistory = [];
+            pathCoordinates = [];
+            totalDistance = 0;
+            maxAltitudeReached = 0;
+            
+            // Reset balloon data
+            balloonData = {
+                altitude: 125,
+                temperature: 28,
+                pressure: 1008,
+                aqi: 65,
+                co: 12,
+                smoke: 18,
+                latitude: 13.0827,
+                longitude: 80.2707,
+                speed: 15,
+                windSpeed: 18,
+                pitch: 5,
+                roll: 2,
+                vibration: 10
+            };
+            
+            // Reset displays
+            updateDisplay(balloonData);
+            
+            // Reset charts
+            if (altitudeChart) {
+                altitudeChart.data.labels = [];
+                altitudeChart.data.datasets[0].data = [];
+                altitudeChart.update();
+            }
+            if (atmosphereChart) {
+                atmosphereChart.data.labels = [];
+                atmosphereChart.data.datasets[0].data = [];
+                atmosphereChart.data.datasets[1].data = [];
+                atmosphereChart.update();
+            }
+            
+            // Reset map
+            if (map && marker) {
+                map.setView([13.0827, 80.2707], 15);
+                marker.setLatLng([13.0827, 80.2707]);
+                pathLine.setLatLngs([]);
+            }
+            
+            // Reset mission status
+            document.getElementById('flightPhase').textContent = 'Grounded';
+            document.getElementById('maxAltitude').textContent = '0 m';
+            document.getElementById('ascentRate').textContent = '0.0 m/s';
+            document.getElementById('flightTime').textContent = '00:00:00';
+            document.getElementById('distance').textContent = '0.00 km';
+        }
+
+        function exportData() {
+            const dataStr = JSON.stringify({
+                timestamp: new Date().toISOString(),
+                telemetry: balloonData,
+                flightHistory: flightHistory,
+                pathCoordinates: pathCoordinates,
+                maxAltitude: maxAltitudeReached,
+                totalDistance: totalDistance
+            }, null, 2);
+            
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `flight_data_${new Date().toISOString().replace(/:/g, '-')}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // ============================================
+        // UTILITY FUNCTIONS
+        // ============================================
+        function haversineDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+    </script>
+</body>
+</html>

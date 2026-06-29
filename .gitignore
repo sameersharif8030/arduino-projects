@@ -1,0 +1,16 @@
+# Arduino build artifacts
+*.hex
+*.elf
+*.bin
+
+# IDE files
+*.workspace
+*.layout
+.idea/
+.vscode/
+*.suo
+*.user
+
+# OS junk
+Thumbs.db
+.DS_Store
